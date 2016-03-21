@@ -4,7 +4,7 @@
 
 # Usage:
 # - name: "Ask the user if we should continue."
-#   ask_key: prompt="Continue? Yes / No / Random (y/n/r)?" accepted_keys="['y', 'n', 'r']"
+#   action: ask_key prompt="Continue? Yes / No / Random (y/n/r)?" accepted_keys="['y', 'n', 'r']"
 #   register: answer
 
 from __future__ import (absolute_import, division, print_function)
