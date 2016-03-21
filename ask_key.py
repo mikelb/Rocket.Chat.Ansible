@@ -61,7 +61,7 @@ class ActionModule(ActionBase):
 
                 termios.tcflush(self._connection._new_stdin, termios.TCIFLUSH)
         else:
-            raise ValueError
+            return {"failed": True, "msg": "For some reason, we couldn't access the connection tty."}
 
         display.display(self._task.args["prompt"] + "\r")
 
