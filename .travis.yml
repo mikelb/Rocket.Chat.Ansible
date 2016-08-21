@@ -1,70 +1,67 @@
 ---
 sudo: required
+dist: trusty
+language: generic
 
 env:
-    #  - >
-    #    container_id=$(mktemp)
-    #    distribution=debian
-    #    version=8
-    #    init=/usr/lib/systemd/systemd
-    #    run_opts="--privileged --volume=/sys/fs/cgroup:/sys/fs/cgroup:ro"
-    #    EXTRA_VARS='{"role_name":"Rocket.Chat.Ansible","host_name":"localhost"}'
-    #    VERBOSE='-vv'
   - >
     container_id=$(mktemp)
+    template=download
     distribution=centos
     version=7
-    init=/usr/lib/systemd/systemd
-    run_opts="--privileged --volume=/sys/fs/cgroup:/sys/fs/cgroup:ro"
+    arch=amd64
+    name=${distribution}
     EXTRA_VARS='{"role_name":"Rocket.Chat.Ansible","host_name":"localhost"}'
     VERBOSE='-vv'
-  - >
-    container_id=$(mktemp)
-    distribution=ubuntu
-    version=14.04
-    init=/sbin/init
-    run_opts=""
-    EXTRA_VARS='{"role_name":"Rocket.Chat.Ansible","host_name":"localhost"}'
-    VERBOSE='-vv'
-  - >
-    container_id=$(mktemp)
-    distribution=ubuntu
-    version=16.04
-    #init=/usr/lib/systemd/systemd
-    run_opts="--privileged --volume=/sys/fs/cgroup:/sys/fs/cgroup:ro"
-    EXTRA_VARS='{"role_name":"Rocket.Chat.Ansible","host_name":"localhost"}'
-    VERBOSE='-vv'
-
-services:
-  - docker
 
 before_install:
-  - sudo apt-get update
-  - sudo docker pull ${distribution}:${version}
-  - >
-    sudo docker build --rm=true
-    --file=tests/Dockerfile.${distribution}_${version}
-    --tag=${distribution}:ansible tests
+  - sudo apt-get -qq -y update &&
+    sudo apt-get -qq -y install yum uidmap cgmanager-utils libcap-dev bridge-utils debootstrap
+    {lxc,liblxc1,lxc1,libpam-cgfs,lxc-templates,python3-lxc}/trusty-backports
+
+  - |
+    mkdir -p lxc ~/.config/lxc;
+    cat <<-EOF > ~/.config/lxc/default.conf
+        lxc.include = /etc/lxc/default.conf
+        lxc.id_map = u 0 100000 65536
+        lxc.id_map = g 0 100000 65536
+        lxc.network.type = veth
+        lxc.network.link = lxcbr0
+        lxc.aa_allow_incomplete = 1
+    EOF
+
+  - eval unset "${!XDG_*}";
+    sudo usermod --add-subuids 100000-165536 $USER;
+    sudo usermod --add-subgids 100000-165536 $USER;
+    sudo restart cgmanager;
+  - cat /proc/self/cgroup
 
 script:
+  - sudo cgm create all $USER;
+    sudo cgm chown all $USER $(id -u) $(id -g);
+    sudo cgm chown all '' $(id -u) $(id -g);
+    cgm movepid all $USER $$; cat /proc/self/cgroup;
+  - cat /proc/self/cgroup
+  - lxc-create -t "${template}" -n "${name}"
+    -- --dist "${distribution}" --release "${version}" --arch "${arch}"
+  - lxc-start -n "${name}" -o logfile
+  - lxc-attach -n "${name}" --
+    yum -y install epel-release
+  - lxc-attach -n "${name}" --
+    yum -y install ansible curl wget sudo tar unzip
+  - >
+    lxc-attach -n "${name}" --
+    ansible-playbook -i localhost,
+    -c local "/$(basename $PWD)/tests/provision.yml"
+    --extra-vars="${EXTRA_VARS}" --syntax-check $VERBOSE
+  - >
+    lxc-attach -n "${name}" --
+    ansible-playbook -i localhost,
+    -c local "/$(basename $PWD)/tests/provision.yml"
+    --extra-vars="${EXTRA_VARS}" $VERBOSE
 
-    # Run container in detached state
-  - sudo docker run --detach --volume="${PWD}":/etc/ansible/roles/Rocket.Chat.Ansible:ro ${run_opts} ${distribution}:ansible "${init}" > "${container_id}"
-
-    # Syntax check
-  - sudo docker exec --tty "$(cat ${container_id})" env TERM=xterm ansible-playbook /etc/ansible/roles/Rocket.Chat.Ansible/tests/provision.yml --syntax-check --extra-vars="$EXTRA_VARS" $VERBOSE
-    # Test role
-  - sudo docker exec --tty "$(cat ${container_id})" env TERM=xterm ansible-playbook /etc/ansible/roles/Rocket.Chat.Ansible/tests/provision.yml --extra-vars="$EXTRA_VARS" $VERBOSE
-    # Idempotence test
-    #- >
-    #sudo docker exec "$(cat ${container_id})" ansible-playbook /etc/ansible/roles/Rocket.Chat.Ansible/tests/provision.yml --extra-vars="$EXTRA_VARS" $VERBOSE
-    #| grep -q 'changed=0.*failed=0'
-    #&& (echo 'Idempotence test: pass' && exit 0)
-    #|| (echo 'Idempotence test: fail' && exit 1)
-
-    # Clean up
-  - sudo docker stop "$(cat ${container_id})"
-
+after_failure:
+  - cat logfile
 
 notifications:
   webhooks: https://galaxy.ansible.com/api/v1/notifications/
