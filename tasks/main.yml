@@ -97,20 +97,40 @@
     when: (ansible_distribution == "Ubuntu")
           and (ansible_distribution_major_version == "16")
 
-  - name: Fetch the Rocket.Chat binary tarball
-    get_url:
-      url: "{{ rocket_chat_tarball_remote }}"
-      checksum: "{{ (rocket_chat_tarball_check_checksum == false) | ternary(omit, 'sha256: ' + rocket_chat_tarball_sha256sum) }}"
-      dest: "{{ rocket_chat_application_path }}/rocket.chat-{{ rocket_chat_version }}.tgz"
-      timeout: "{{ rocket_chat_tarball_fetch_timeout }}"
-      validate_certs: "{{ rocket_chat_tarball_validate_remote_cert }}"
-    # Temp fix for ansible/ansible#15915 ( Broken include in handlers )
-    # https://github.com/ansible/ansible/issues/15915
-    #notify: Upgrade Rocket.Chat
-    become: true
-    become_user: "{{ rocket_chat_service_user }}"
-    register: result
-    retries: 3
+  - block:
+      - name: Fetch the Rocket.Chat binary tarball
+        get_url:
+          url: "{{ rocket_chat_tarball_remote }}"
+          checksum: "{{ (rocket_chat_tarball_check_checksum == false) | ternary(omit, 'sha256: ' + rocket_chat_tarball_sha256sum) }}"
+          dest: "{{ rocket_chat_application_path }}/rocket.chat-{{ rocket_chat_version }}.tgz"
+          timeout: "{{ rocket_chat_tarball_fetch_timeout }}"
+          validate_certs: "{{ rocket_chat_tarball_validate_remote_cert }}"
+        # Temp fix for ansible/ansible#15915 ( Broken include in handlers )
+        # https://github.com/ansible/ansible/issues/15915
+        #notify: Upgrade Rocket.Chat
+        become: true
+        become_user: "{{ rocket_chat_service_user }}"
+        register: result
+        retries: 3
+        until: result|passed
+    rescue:
+      - name: Prompt for continuation after hash failure
+        action:
+          module: ask_key
+          prompt: Would you like to continue anyway, disregarding the hash check? [y/N]
+          accepted_keys: ['y','Y','n','N']
+        register: question
+      - get_url:
+          url: "{{ rocket_chat_tarball_remote }}"
+          force: true
+          dest: "{{ rocket_chat_application_path }}/rocket.chat-{{ rocket_chat_version }}.tgz"
+          timeout: "{{ rocket_chat_tarball_fetch_timeout }}"
+          validate_certs: "{{ rocket_chat_tarball_validate_remote_cert }}"
+        when: ( question == [Yy] )
+
+
+
+
 
   - name: Upgrade Rocket.Chat
     include: upgrade.yml

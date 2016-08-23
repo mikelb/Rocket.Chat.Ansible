@@ -5,6 +5,6 @@
 
   roles:
     - role: "{{ role_name | default('../../RocketChat.Server') }}"
-      rocket_chat_tarball_check_checksum: false
+  #      rocket_chat_tarball_check_checksum: false
       rocket_chat_service_host: localhost
       rocket_chat_automatic_upgrades: true
